@@ -5,16 +5,22 @@ use libc::{c_char, c_uint, c_ulong, uintptr_t};
 
 use std;
 use std::ffi::{CStr, CString};
+use std::sync::Once;
 
+use crate::errors::{Error, BfdError};
 use helpers::{get_arch, get_mach, get_start_address, macro_bfd_big_endian, CURRENT_OPCODE};
 use opcodes::{disassembler, DisassembleInfo, DisassembleInfoRaw, DisassemblerFunction};
 use section::{Section, SectionRaw};
 use utils;
 use Error;
 
+static INIT: Once = Once::new();
+
 extern "C" {
     fn bfd_init();
 
+    pub fn bfd_set_error(error_tag: u32);
+    
     pub fn bfd_get_error() -> c_uint;
 
     pub fn bfd_errmsg(error_tag: c_uint) -> *const c_char;
@@ -160,6 +166,34 @@ impl Bfd {
         };
         self.arch_mach = unsafe { (get_arch(arch_info), get_mach(arch_info)) };
         Ok(self.arch_mach)
+    }
+
+    pub fn bfd_set_error(error: BfdError) {
+        INIT.call_once(|| {
+            unsafe { bfd_init() };
+        });
+    
+        if error == BfdError::OnInput {
+            panic!("Use set_bfd_input_error for input errors");
+        }
+    
+        unsafe {
+            bfd_set_error(error.into());
+        }
+    }
+    
+    pub fn bfd_set_input_error(error: BfdError) {
+        INIT.call_once(|| {
+            unsafe { bfd_init() };
+        });
+    
+        if error != BfdError::OnInput {
+            panic!("set_bfd_input_error should only be used with BfdError::OnInput");
+        }
+    
+        unsafe {
+            bfd_set_error(error.into());
+        }
     }
 }
 
