@@ -1,6 +1,73 @@
 use std::fmt;
 use std::error::Error as StdError;
 
+// bfd lib errors
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BfdError {
+    NoError = 0,
+    SystemCall,
+    InvalidTarget,
+    WrongFormat,
+    WrongObjectFormat,
+    InvalidOperation,
+    NoMemory,
+    NoSymbols,
+    NoArmap,
+    NoMoreArchivedFiles,
+    MalformedArchive,
+    MissingDso,
+    FileNotRecognized,
+    FileAmbiguouslyRecognized,
+    NoContents,
+    NonrepresentableSection,
+    NoDebugSection,
+    BadValue,
+    FileTruncated,
+    FileTooBig,
+    Sorry,
+    OnInput,
+    InvalidErrorCode,
+}
+
+impl From<u32> for BfdError {
+    fn from(error: u32) -> Self {
+        match error {
+            0 => BfdError::NoError,
+            1 => BfdError::SystemCall,
+            2 => BfdError::InvalidTarget,
+            3 => BfdError::WrongFormat,
+            4 => BfdError::WrongObjectFormat,
+            5 => BfdError::InvalidOperation,
+            6 => BfdError::NoMemory,
+            7 => BfdError::NoSymbols,
+            8 => BfdError::NoArmap,
+            9 => BfdError::NoMoreArchivedFiles,
+            10 => BfdError::MalformedArchive,
+            11 => BfdError::MissingDso,
+            12 => BfdError::FileNotRecognized,
+            13 => BfdError::FileAmbiguouslyRecognized,
+            14 => BfdError::NoContents,
+            15 => BfdError::NonrepresentableSection,
+            16 => BfdError::NoDebugSection,
+            17 => BfdError::BadValue,
+            18 => BfdError::FileTruncated,
+            19 => BfdError::FileTooBig,
+            20 => BfdError::Sorry,
+            21 => BfdError::OnInput,
+            22 => BfdError::InvalidErrorCode,
+            _ => BfdError::InvalidErrorCode,
+        }
+    }
+}
+
+impl From<BfdError> for u32 {
+    fn from(error: BfdError) -> Self {
+        error as u32
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     BfdError(BfdError, String),
