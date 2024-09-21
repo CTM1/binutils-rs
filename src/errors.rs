@@ -1,6 +1,7 @@
 use std::fmt;
 use std::error::Error as StdError;
-
+use std::ffi::{NulError, FromBytesWithNulError};
+use std::str::Utf8Error;
 // bfd lib errors
 
 #[repr(C)]
@@ -70,11 +71,12 @@ impl From<BfdError> for u32 {
 
 #[derive(Debug)]
 pub enum Error {
-    BfdError(BfdError, String),
+    BfdError(u32, String),
     DisassembleInfoError(String),
     SectionError(String),
     CommonError(String),
-    NulError(std::ffi::NulError),
+    NulError(NulError),
+    FromBytesWithNulError(FromBytesWithNulError),
     Utf8Error(std::str::Utf8Error),
     NullPointerError(String),
 }
@@ -82,10 +84,11 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::BfdError(tag, msg) => write!(f, "BFD error {}: {}", tag as u32, msg),
+            Error::BfdError(code, msg) => write!(f, "BFD error {}: {}", code, msg),
             Error::DisassembleInfoError(msg) => write!(f, "Disassemble info error: {}", msg),
             Error::SectionError(section) => write!(f, "Can't find '{}' section!", section),
             Error::CommonError(msg) => write!(f, "Common error: {}", msg),
+            Error::FromBytesWithNulError(e) => write!(f, "FromBytesWithNul error: {}", e),
             Error::NulError(e) => write!(f, "Nul error: {}", e),
             Error::Utf8Error(e) => write!(f, "UTF-8 error: {}", e),
             Error::NullPointerError(msg) => write!(f, "Null pointer error: {}", msg),
@@ -103,20 +106,20 @@ impl StdError for Error {
     }
 }
 
-impl From<std::ffi::NulError> for Error {
-    fn from(error: std::ffi::NulError) -> Self {
+impl From<NulError> for Error {
+    fn from(error: NulError) -> Self {
         Error::NulError(error)
     }
 }
 
-impl From<std::ffi::FromBytesWithNulError> for Error {
-    fn from(error: std::ffi::FromBytesWithNulError) -> Self {
-        Error::NulError(error.into())
+impl From<FromBytesWithNulError> for Error {
+    fn from(error: FromBytesWithNulError) -> Self {
+        Error::FromBytesWithNulError(error)
     }
 }
 
-impl From<std::str::Utf8Error> for Error {
-    fn from(error: std::str::Utf8Error) -> Self {
+impl From<Utf8Error> for Error {
+    fn from(error: Utf8Error) -> Self {
         Error::Utf8Error(error)
     }
 }
