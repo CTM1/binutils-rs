@@ -6,37 +6,27 @@ use libc::{c_char, c_uint, c_ulong, uintptr_t};
 use std;
 use std::ffi::{CStr, CString};
 use std::sync::Once;
+use Error;
 
-use crate::errors::{Error, BfdError};
+use errors::BfdError;
 use helpers::{get_arch, get_mach, get_start_address, macro_bfd_big_endian, CURRENT_OPCODE};
 use opcodes::{disassembler, DisassembleInfo, DisassembleInfoRaw, DisassemblerFunction};
 use section::{Section, SectionRaw};
 use utils;
-use Error;
 
 static INIT: Once = Once::new();
 
 extern "C" {
     fn bfd_init();
-
-    pub fn bfd_set_error(error_tag: u32);
-    
-    pub fn bfd_get_error() -> c_uint;
-
-    pub fn bfd_errmsg(error_tag: c_uint) -> *const c_char;
-
+    fn bfd_set_error(error_tag: c_uint);
+    fn bfd_get_error() -> c_uint;
+    fn bfd_errmsg(error_tag: c_uint) -> *const c_char;
     fn bfd_openr(filename: *const c_char, target: *const c_char) -> *const BfdRaw;
-
     fn bfd_check_format(bfd: *const BfdRaw, bfd_format: BfdFormat) -> bool;
-
     fn bfd_get_section_by_name(bfd: *const BfdRaw, name: *const c_char) -> *const SectionRaw;
-
     fn bfd_arch_list() -> *const uintptr_t;
-
     fn bfd_scan_arch(string: *const c_char) -> *const c_uint;
-
     fn bfd_get_arch(bfd: *const BfdRaw) -> c_uint;
-
     fn bfd_get_mach(bfd: *const BfdRaw) -> c_ulong;
 }
 
@@ -56,51 +46,72 @@ impl Bfd {
         self.bfd
     }
 
+    pub fn init() {
+        INIT.call_once(|| {
+            unsafe { bfd_init() };
+        });
+    }
+
     pub fn empty() -> Bfd {
-        unsafe { bfd_init() };
+        Self::init();
         Bfd {
             bfd: std::ptr::null(),
             arch_mach: (0, 0),
         }
     }
 
-    pub fn openr(filename: &str, target: &str) -> Result<Bfd, Error> {
-        unsafe { bfd_init() };
+    pub fn set_error(error: BfdError) {
+        Self::init();
+        if error == BfdError::OnInput {
+            panic!("Use set_input_error for input errors");
+        }
+        unsafe { bfd_set_error(error.into()) };
+    }
 
+    pub fn set_input_error(error: BfdError) {
+        Self::init();
+        if error != BfdError::OnInput {
+            panic!("set_input_error should only be used with BfdError::OnInput");
+        }
+        unsafe { bfd_set_error(error.into()) };
+    }
+
+    fn convert_error() -> Error {
+        let error_code = unsafe { bfd_get_error() };
+        let msg_char = unsafe { bfd_errmsg(error_code) };
+        let msg_str = match unsafe { CStr::from_ptr(msg_char).to_str() } {
+            Ok(s) => s,
+            Err(e) => return Error::Utf8Error(e),
+        };
+        Error::BfdError(error_code, msg_str.to_string())
+    }
+
+    pub fn openr(filename: &str, target: &str) -> Result<Bfd, Error> {
+        Self::init();
         let filename_cstring = CString::new(filename)?;
         let target_cstring = CString::new(target)?;
-
         let bfd = unsafe { bfd_openr(filename_cstring.as_ptr(), target_cstring.as_ptr()) };
         if bfd.is_null() {
-            return Err(bfd_convert_error());
-        };
-
-        Ok(Bfd {
-            bfd,
-            arch_mach: (0, 0),
-        })
+            return Err(Self::convert_error());
+        }
+        Ok(Bfd { bfd, arch_mach: (0, 0) })
     }
 
     pub fn check_format(&self, format: BfdFormat) -> Result<(), Error> {
         utils::check_null_pointer(self.bfd, "bfd pointer is null!")?;
-
         if !unsafe { bfd_check_format(self.bfd, format) } {
-            return Err(bfd_convert_error());
-        };
-
+            return Err(Self::convert_error());
+        }
         Ok(())
     }
 
     pub fn get_section_by_name(&self, section_name: &str) -> Result<Section, Error> {
         utils::check_null_pointer(self.bfd, "bfd pointer is null!")?;
-
         let section_name_cstring = CString::new(section_name)?;
-
         let section = unsafe { bfd_get_section_by_name(self.bfd, section_name_cstring.as_ptr()) };
         if section.is_null() {
             return Err(Error::SectionError(section_name.to_string()));
-        };
-
+        }
         Ok(Section::from_raw(section)?)
     }
 
@@ -168,45 +179,19 @@ impl Bfd {
         Ok(self.arch_mach)
     }
 
-    pub fn bfd_set_error(error: BfdError) {
-        INIT.call_once(|| {
-            unsafe { bfd_init() };
-        });
-    
-        if error == BfdError::OnInput {
-            panic!("Use set_bfd_input_error for input errors");
-        }
-    
-        unsafe {
-            bfd_set_error(error.into());
-        }
-    }
-    
-    pub fn bfd_set_input_error(error: BfdError) {
-        INIT.call_once(|| {
-            unsafe { bfd_init() };
-        });
-    
-        if error != BfdError::OnInput {
-            panic!("set_bfd_input_error should only be used with BfdError::OnInput");
-        }
-    
-        unsafe {
-            bfd_set_error(error.into());
-        }
-    }
 }
 
 pub fn arch_list() -> Vec<String> {
+    Bfd::init();
     let mut ret_vec = Vec::new();
     let mut index = 0;
     let mut stop = false;
-
     let list = unsafe { bfd_arch_list() };
+    
     if list.is_null() {
         return ret_vec;
     }
-
+    
     loop {
         let slice = unsafe { std::slice::from_raw_parts(list.offset(index), 32) };
         for item in slice.iter().take(32) {
@@ -230,16 +215,6 @@ pub fn arch_list() -> Vec<String> {
     unsafe { libc::free(list as *mut libc::c_void); }
 
     ret_vec
-}
-
-fn bfd_convert_error() -> Error {
-    let error = unsafe { bfd_get_error() };
-    let msg_char = unsafe { bfd_errmsg(error) };
-    let msg_str = match unsafe { CStr::from_ptr(msg_char).to_str() } {
-        Ok(s) => s,
-        Err(e) => return Error::Utf8Error(e),
-    };
-    Error::BfdError(error, msg_str.to_string())
 }
 
 #[allow(non_camel_case_types)] // use the same enum names as libbfd
